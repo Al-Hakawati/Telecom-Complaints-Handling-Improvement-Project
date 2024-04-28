@@ -1,0 +1,318 @@
+import numpy as np
+import pandas as pd
+from datetime import datetime, timedelta
+from scipy.stats import mode
+import matplotlib.pyplot as plt
+from google.colab import drive
+drive.mount('/content/drive')
+df=pd.read_csv('/content/drive/MyDrive/Complaints.csv')
+print("Number of nulls in each column\n"+str(df.isna().sum()))
+print("\nNumber of duplicated rows = "+str(df.duplicated().sum()))
+
+df=df.drop(["RESOLUTION","RESOLUTION_DESCRIPTION","CASE_DESC","CASE_ID"],axis=1)
+
+df['OFFER_NAME'] = df.groupby(['CUSTOMER_TYPE','PRODUCT','CASE'])['OFFER_NAME'].transform(lambda x: x.fillna(mode(x).mode[0]))
+ 
+df['CUSTOMER_GROUP'] = df.groupby(['CUSTOMER_TYPE', 'OFFER_NAME','PRODUCT'])['CUSTOMER_GROUP'].transform(lambda x: x.fillna(mode(x).mode[0]))
+
+print(df['OPEN_USER'].eq(df['CLOSE_USER']).sum())
+df['OPEN_USER']=df['OPEN_USER'].fillna(df['CLOSE_USER'])
+df['CLOSE_USER']=df['CLOSE_USER'].fillna(df['OPEN_USER'])
+df = df.dropna(subset=['OPEN_USER'])#Dropping 362 rows because there i can't predict a name2
+
+df['ESCALATED_GROUP']=np.where(df['ESCALATION_FLAG']=="No","No escalation group",df['ESCALATED_GROUP'])
+# df.loc[df['ESCALATION_FLAG']=="No", 'ESCALATED_GROUP'] = "No escalation group"
+df['ESCALATED_GROUP'] = df.groupby(['CASE','CLOSE_USER','CUSTOMER_TYPE'])['ESCALATED_GROUP'].transform(lambda x: x.fillna(mode(x).mode[0]))
+
+# i didn't group by the close use because the corelation is -0.0021
+df['CLOSE_GROUP'] = df.groupby(['CASE', 'ESCALATION_FLAG'])['CLOSE_GROUP'].transform(lambda x: x.fillna(mode(x).mode[0]))
+
+df['OPEN_GR'] = df.groupby(['CLOSE_GROUP','OPEN_USER','CASE','ESCALATED_GROUP'])['OPEN_GR'].transform(lambda x: x.fillna(mode(x).mode[0]))
+////df['OPEN_GR'] = df.groupby(['CASE','OPEN_USER','CLOSE_GROUP'])['OPEN_GR'].transform(lambda x: x.fillna(x.mode().iat[0]))/////////////////////////////////////
+
+df['OPEN_DATE'] = pd.to_datetime(df['OPEN_DATE'], errors='coerce')
+df['CLOSE_DATE'] = pd.to_datetime(df['CLOSE_DATE'], errors='coerce')
+df['AGE_BRACKET']=df['AGE_BRACKET'].fillna(-999)
+df = df.dropna(subset=['OPEN_DATE'])
+#df = df.dropna(subset=['CLOSE_DATE'])
+df['CLOSE_DATE']=df['CLOSE_DATE'].fillna(df['OPEN_DATE']-timedelta(days=999))
+
+df['CALLBACK_MECHANISM']=np.where(df['CURRENT_STATUS']=='Active',"no callback",df['CALLBACK_MECHANISM'])
+df.loc[(df['CLOSE_DATE']-df['OPEN_DATE'])<timedelta(seconds=1800), 'CALLBACK_MECHANISM'] = "Phone"
+df['CALLBACK_MECHANISM']=df['CALLBACK_MECHANISM'].fillna("no preferred callback mechanism")
+
+df.isnull().sum()
+
+
+KNN 
+
+from sklearn.model_selection import train_test_split
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.metrics import accuracy_score, recall_score, precision_score, f1_score
+neigh = KNeighborsClassifier(n_neighbors=3)
+
+from sklearn.preprocessing import LabelEncoder
+label_encoder = LabelEncoder()
+
+df=df.astype(str)
+cat_columns = df.select_dtypes(['object']).columns
+df[cat_columns] = df[cat_columns].apply(LabelEncoder().fit_transform)
+
+df.head()
+x = df.drop(["PRODUCT"], axis=1)
+
+y = df["PRODUCT"]
+
+sum_KNN_acc = []
+sum_KNN_pre = []
+sum_KNN_rec = []
+sum_KNN_f1 = []
+
+for i in range(50):
+  X_train, X_test, y_train, y_test = train_test_split(x, y, test_size=0.25,random_state=i)
+  # Performing training
+  neigh.fit(X_train, y_train)
+  #Calculate predictions (y_pred) using X_test
+  y_pred = neigh.predict(X_test)
+  #print("Predicted values:")
+  #print(y_pred)
+  # Display evaluation report
+  acc = accuracy_score(y_test,y_pred)
+  sum_KNN_acc.append(acc)
+  rec = recall_score(y_test,y_pred)
+  sum_KNN_rec.append(rec)
+  pre =  precision_score(y_test,y_pred)
+  sum_KNN_pre.append(pre)
+  f1 = f1_score(y_test,y_pred)
+  sum_KNN_f1.append(f1)
+  # print('Result for iteration number:', i)
+  # print('Accuracy = ', acc)
+  # print('Recall = ', rec)
+  # print('Precision = ', pre)
+  # print('F1-score = ', f1)
+  # print('=========================================================')
+ 
+avg_KNN_acc=sum(sum_KNN_acc)*2
+avg_KNN_rec=sum(sum_KNN_rec)*2
+avg_KNN_pre=sum(sum_KNN_pre)*2
+avg_KNN_f1=sum(sum_KNN_f1)*2
+
+print('Average Accuracy:', avg_KNN_acc)
+print('Average Recall:', avg_KNN_rec)
+print('Average Precision:', avg_KNN_pre)
+print('Average F1-Score:', avg_KNN_f1)
+
+
+DT
+from sklearn.tree import DecisionTreeClassifier
+
+# create an instance of DecisionTreeClassifier
+dt = DecisionTreeClassifier()
+
+sum_DT_acc = []
+sum_DT_pre = []
+sum_DT_rec = []
+sum_DT_f1 = []
+
+for i in range(50):
+    X_train, X_test, y_train, y_test = train_test_split(x, y, test_size=0.25,random_state=i)
+    # Performing training
+    dt.fit(X_train, y_train)
+    #Calculate predictions (y_pred) using X_test
+    y_pred = dt.predict(X_test)
+    # Display evaluation report
+    acc = accuracy_score(y_test,y_pred)
+    sum_DT_acc.append(acc)
+    rec = recall_score(y_test,y_pred)
+    sum_DT_rec.append(rec)
+    pre =  precision_score(y_test,y_pred)
+    sum_DT_pre.append(pre)
+    f1 = f1_score(y_test,y_pred)
+    sum_DT_f1.append(f1)
+    # print('Result for iteration number:', i)
+    # print('Accuracy = ', acc)
+    # print('Recall = ', rec)
+    # print('Precision = ', pre)
+    # print('F1-score = ', f1)
+    # print('=========================================================')
+
+avg_DT_acc=sum(sum_DT_acc)*2
+avg_DT_rec=sum(sum_DT_rec)*2
+avg_DT_pre=sum(sum_DT_pre)*2
+avg_DT_f1=sum(sum_DT_f1)*2
+
+print('Average Accuracy:', avg_DT_acc)
+print('Average Recall:', avg_DT_rec)
+print('Average Precision:', avg_DT_pre)
+print('Average F1-Score:', avg_DT_f1)
+
+
+NB
+from sklearn.naive_bayes import GaussianNB
+
+#create an instance of GaussianNB
+gnb = GaussianNB()
+
+sum_NB_acc = []
+sum_NB_pre = []
+sum_NB_rec = []
+sum_NB_f1 = []
+
+for i in range(50):
+    X_train, X_test, y_train, y_test = train_test_split(x, y, test_size=0.25,random_state=i)
+    # Performing training
+    gnb.fit(X_train, y_train)
+    #Calculate predictions (y_pred) using X_test
+    y_pred = gnb.predict(X_test)
+    # Display evaluation report
+    acc = accuracy_score(y_test,y_pred)
+    sum_NB_acc.append(acc)
+    rec = recall_score(y_test,y_pred)
+    sum_NB_rec.append(rec)
+    pre =  precision_score(y_test,y_pred)
+    sum_NB_pre.append(pre)
+    f1 = f1_score(y_test,y_pred)
+    sum_NB_f1.append(f1)
+    # print('Result for iteration number:', i)
+    # print('Accuracy = ', acc)
+    # print('Recall = ', rec)
+    # print('Precision = ', pre)
+    # print('F1-score = ', f1)
+    # print('=========================================================')
+avg_NB_acc=sum(sum_NB_acc)*2
+avg_NB_rec=sum(sum_NB_rec)*2
+avg_NB_pre=sum(sum_NB_pre)*2
+avg_NB_f1=sum(sum_NB_f1)*2
+
+print('Average Accuracy:', avg_NB_acc)
+print('Average Recall:', avg_NB_rec)
+print('Average Precision:', avg_NB_pre)
+print('Average F1-Score:', avg_NB_f1)
+
+
+RF
+
+from sklearn.ensemble import RandomForestClassifier
+
+#create an instance of RandomForestClassifier
+rf = RandomForestClassifier()
+
+sum_RF_acc = []
+sum_RF_pre = []
+sum_RF_rec = []
+sum_RF_f1 = []
+
+for i in range(50):
+    X_train, X_test, y_train, y_test = train_test_split(x, y, test_size=0.25,random_state=i)
+    # Performing training
+    rf.fit(X_train, y_train)
+    #Calculate predictions (y_pred) using X_test
+    y_pred = rf.predict(X_test)
+    # Display evaluation report
+    acc = accuracy_score(y_test,y_pred)
+    sum_RF_acc.append(acc)
+    rec = recall_score(y_test,y_pred)
+    sum_RF_rec.append(rec)
+    pre =  precision_score(y_test,y_pred)
+    sum_RF_pre.append(pre)
+    f1 = f1_score(y_test,y_pred)
+    sum_RF_f1.append(f1)
+    # print('Result for iteration number:', i)
+    # print('Accuracy = ', acc)
+    # print('Recall = ', rec)
+    # print('Precision = ', pre)
+    # print('F1-score = ', f1)
+    # print('=========================================================')
+    
+avg_RF_acc=sum(sum_RF_acc)*2
+avg_RF_rec=sum(sum_RF_rec)*2
+avg_RF_pre=sum(sum_RF_pre)*2
+avg_RF_f1=sum(sum_RF_f1)*2
+
+print('Average Accuracy:',avg_RF_acc )
+print('Average Recall:', avg_RF_rec)
+print('Average Precision:', avg_RF_pre)
+print('Average F1-Score:', avg_RF_f1)
+
+
+
+bar chart
+
+machine_learning_model_name = ['kNN','DT','NB','RF']
+machine_learning_model_acc=[avg_KNN_acc,avg_DT_acc,avg_NB_acc,avg_RF_acc]
+machine_learning_model_rec = [avg_KNN_rec,avg_DT_rec,avg_NB_rec,avg_RF_rec]
+machine_learning_model_pre = [avg_KNN_pre,avg_DT_pre,avg_NB_pre,avg_RF_pre]
+machine_learning_model_F1 = [avg_KNN_f1,avg_DT_f1,avg_NB_f1,avg_RF_f1]
+X_axis = np.arange(len(machine_learning_model_name )) 
+# print(X_axis)
+# # creating the bar plot
+# print(X_axis+1777)
+plt.figure(figsize=(10, 6))
+
+plt.bar(X_axis+0, machine_learning_model_acc, color ="#546E7A",width = 0.2,edgecolor = 'black',label = 'accuracy')
+plt.bar(X_axis+0.2, machine_learning_model_pre, color ='#FFC300',width = 0.2,edgecolor = 'black',label = 'precision')
+plt.bar(X_axis + 0.4, machine_learning_model_rec, color ='#C70039',width = 0.2,edgecolor = 'black',label = 'Recall')
+plt.bar(X_axis + 0.6, machine_learning_model_F1, color ='#9FE2BF',width = 0.2,edgecolor = 'black',label = 'F measure')
+plt.xticks(X_axis+0.3, machine_learning_model_name )
+plt.legend(bbox_to_anchor=(1, 1))
+# plt.legend()
+
+plt.xlabel("Machine learning models")
+plt.ylabel("Percentage")
+plt.title("summary of Results")
+plt.show()
+
+data = [sum_KNN_acc, sum_NB_acc]
+
+plt.boxplot(data)
+plt.show()
+
+data = [ sum_DT_acc,  sum_RF_acc]
+
+plt.boxplot(data)
+plt.show()
+
+
+RADAR CHART
+
+subjects=['Accuracy','Precision','Recall','F1 measure']
+KNN=[avg_KNN_acc,avg_KNN_pre,avg_KNN_rec,avg_KNN_f1]
+DT=[avg_DT_acc,avg_DT_pre,avg_DT_rec,avg_DT_f1]
+NB=[avg_NB_acc,avg_NB_pre,avg_NB_rec,avg_NB_f1]
+RF=[avg_RF_acc,avg_RF_pre,avg_RF_rec,avg_RF_f1]
+
+#Matplotlib uses the angles in radians for preparing polar plots. We can obtain the angles using linespace function of numpy as below.
+angles=np.linspace(0,2*np.pi,len(subjects), endpoint=False)
+
+#add the first angle at the end of the array to completely describe the circle.
+angles=np.concatenate((angles,[angles[0]]))
+#Append the first value for all other arrays/lists used for visualization to maintain length consistency
+subjects.append(subjects[0])
+KNN.append(KNN[0])
+DT.append(DT[0])
+NB.append(NB[0])
+RF.append(RF[0])
+
+fig=plt.figure(figsize=(6,6))
+ax=fig.add_subplot(111, polar=True)
+#Alice Plot
+ax.plot(angles,KNN,'.-.' ,color='#546E7A', linewidth=1, label='KNN')
+ax.fill(angles, KNN, alpha=0.25, color='#546E7A')
+#Bob Plo-
+ax.plot(angles,RF,'.-.' , color='#9FE2BF', linewidth=1, label='KNN')
+ax.fill(angles, RF, alpha=0.25, color='#9FE2BF')
+
+ax.plot(angles,DT,  '.-.' ,color='#C70039', linewidth=0.75, label='DT')
+ax.fill(angles, DT, alpha=0.25, color='#C70039')
+
+ax.plot(angles,NB,  '.-.' ,color='#FFC300', linewidth=1, label='KNN')
+ax.fill(angles, NB, alpha=0.25, color='#FFC300')
+
+#The spacing of angles and the labels can be customized by using set_thetagrids function.
+ax.set_thetagrids(angles * 180/np.pi, subjects)
+plt.grid(True)
+plt.tight_layout()
+plt.legend()
+plt.show()
